@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +23,14 @@ import (
 )
 
 var TestPlatforms = []fn.Platform{{OS: "linux", Architecture: runtime.GOARCH}}
+
+func TestGoBuildEnvs_PreservesPrefixedVariables(t *testing.T) {
+	t.Setenv("GOARCHIVE", "keep")
+
+	if envs := goBuildEnvs(v1.Platform{OS: "linux", Architecture: "amd64"}); !slices.Contains(envs, "GOARCHIVE=keep") {
+		t.Fatal("expected GOARCHIVE to be preserved")
+	}
+}
 
 func copyDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info fs.FileInfo, err error) error {

@@ -149,7 +149,7 @@ func goBuildEnvs(p v1.Platform) (envs []string) {
 	isPegged := func(env string) bool {
 		for _, v := range pegged {
 			name := strings.Split(v, "=")[0]
-			if strings.HasPrefix(env, name) {
+			if strings.HasPrefix(env, name+"=") {
 				return true
 			}
 		}
