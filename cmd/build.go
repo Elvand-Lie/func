@@ -501,7 +501,7 @@ func (c buildConfig) buildOptions() (oo []fn.BuildOption, err error) {
 	// supports multi.
 	if c.Platform != "" {
 		parts := strings.Split(c.Platform, "/")
-		if len(parts) != 2 {
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return oo, fmt.Errorf("the value for --platform must be in the form [OS]/[Architecture].  eg \"linux/amd64\"")
 		}
 		oo = append(oo, fn.BuildWithPlatforms([]fn.Platform{{OS: parts[0], Architecture: parts[1]}}))

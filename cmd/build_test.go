@@ -95,6 +95,16 @@ func TestBuild_BaseImage(t *testing.T) {
 	testBaseImage(NewBuildCmd, t)
 }
 
+func TestBuild_RejectsIncompletePlatform(t *testing.T) {
+	for _, platform := range []string{"/amd64", "linux/"} {
+		t.Run(platform, func(t *testing.T) {
+			if _, err := (buildConfig{Platform: platform}).buildOptions(); err == nil {
+				t.Fatalf("expected platform %q to be rejected", platform)
+			}
+		})
+	}
+}
+
 // TestBuild_Push ensures that the build command properly pushes and respects
 // the --push flag.
 // - Push triggered after a successful build
