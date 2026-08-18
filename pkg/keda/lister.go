@@ -11,25 +11,36 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	fn "knative.dev/func/pkg/functions"
 	"knative.dev/func/pkg/k8s"
+	"knative.dev/func/pkg/k8s/labels"
 )
 
 type Lister struct {
+	kc      *k8s.Client
 	verbose bool
 }
 
-func NewLister(verbose bool) fn.Lister {
+func NewLister(kc *k8s.Client, verbose bool) fn.Lister {
 	return &Lister{
+		kc:      kc,
 		verbose: verbose,
 	}
 }
 
 func (l *Lister) List(ctx context.Context, namespace string) ([]fn.ListItem, error) {
-	clientset, err := k8s.NewKubernetesClientset()
+	if l.kc == nil {
+		return nil, fmt.Errorf("kubernetes client is not initialized")
+	}
+	clientset, err := l.kc.Clientset()
 	if err != nil {
 		return nil, fmt.Errorf("unable to create k8s client: %v", err)
 	}
 
-	httpScaledObjectClientset, err := NewHTTPScaledObjectClientset()
+	restConfig, err := l.kc.ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get kubernetes client config: %v", err)
+	}
+
+	httpScaledObjectClientset, err := versioned.NewForConfig(restConfig)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create HTTPScaledObject client: %v", err)
 	}
@@ -49,7 +60,8 @@ func (l *Lister) List(ctx context.Context, namespace string) ([]fn.ListItem, err
 			continue
 		}
 
-		item, err := l.get(ctx, httpScaledObjectClientset, service.Name, service.Namespace)
+		runtime := service.Labels[labels.FunctionRuntimeKey]
+		item, err := l.get(ctx, httpScaledObjectClientset, service.Name, service.Namespace, runtime)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get details about function: %v", err)
 		}
@@ -61,7 +73,7 @@ func (l *Lister) List(ctx context.Context, namespace string) ([]fn.ListItem, err
 }
 
 // Get a function, optionally specifying a namespace.
-func (l *Lister) get(ctx context.Context, httpScaledObjectClientset *versioned.Clientset, name, namespace string) (fn.ListItem, error) {
+func (l *Lister) get(ctx context.Context, httpScaledObjectClientset *versioned.Clientset, name, namespace, runtime string) (fn.ListItem, error) {
 	httpScaledObject, err := httpScaledObjectClientset.HttpV1alpha1().HTTPScaledObjects(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fn.ListItem{}, fmt.Errorf("unable to get HTTPScaledObject: %v", err)
@@ -79,11 +91,10 @@ func (l *Lister) get(ctx context.Context, httpScaledObjectClientset *versioned.C
 		url = fmt.Sprintf("http://%s:8080", httpScaledObject.Spec.Hosts[0])
 	}
 
-	runtimeLabel := ""
 	listItem := fn.ListItem{
 		Name:      name,
 		Namespace: namespace,
-		Runtime:   runtimeLabel,
+		Runtime:   runtime,
 		URL:       url,
 		Ready:     string(ready),
 		Deployer:  KedaDeployerName,

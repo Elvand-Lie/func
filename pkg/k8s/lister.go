@@ -9,20 +9,26 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	fn "knative.dev/func/pkg/functions"
+	"knative.dev/func/pkg/k8s/labels"
 )
 
 type Lister struct {
+	kc      *Client
 	verbose bool
 }
 
-func NewLister(verbose bool) fn.Lister {
+func NewLister(kc *Client, verbose bool) fn.Lister {
 	return &Lister{
+		kc:      kc,
 		verbose: verbose,
 	}
 }
 
 func (l *Lister) List(ctx context.Context, namespace string) ([]fn.ListItem, error) {
-	clientset, err := NewKubernetesClientset()
+	if l.kc == nil {
+		return nil, fmt.Errorf("kubernetes client is not initialized")
+	}
+	clientset, err := l.kc.Clientset()
 	if err != nil {
 		return nil, fmt.Errorf("unable to create k8s client: %v", err)
 	}
@@ -77,11 +83,10 @@ func (l *Lister) get(ctx context.Context, clientset *kubernetes.Clientset, name,
 		return fn.ListItem{}, fmt.Errorf("could not get service: %w", err)
 	}
 
-	runtimeLabel := ""
 	listItem := fn.ListItem{
 		Name:      service.Name,
 		Namespace: service.Namespace,
-		Runtime:   runtimeLabel,
+		Runtime:   deployment.Labels[labels.FunctionRuntimeKey],
 		URL:       fmt.Sprintf("http://%s.%s.svc", service.Name, service.Namespace), // TODO: use correct scheme
 		Ready:     string(ready),
 		Deployer:  KubernetesDeployerName,
