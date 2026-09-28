@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"regexp"
 	"sort"
@@ -222,6 +223,7 @@ func (d *Deployer) Deploy(ctx context.Context, f fn.Function) (fn.DeploymentResu
 		// exposure and trigger satellites below
 		if svcGetErr == nil {
 			svc.ResourceVersion = existingService.ResourceVersion
+			preserveServiceNetworkFields(svc, existingService)
 			if svc, err = serviceClient.Update(ctx, svc, metav1.UpdateOptions{}); err != nil {
 				return fn.DeploymentResult{}, fmt.Errorf("failed to update service: %w", err)
 			}
@@ -673,8 +675,19 @@ func (d *Deployer) generateDeployment(f fn.Function, namespace string, labels, a
 	SetSecurityContext(&container)
 
 	replicas := int32(1)
-	if f.Deploy.Options.Scale != nil && f.Deploy.Options.Scale.Min != nil && *f.Deploy.Options.Scale.Min > 0 {
-		replicas = int32(*f.Deploy.Options.Scale.Min)
+	if f.Scale != nil && f.Scale.Min != nil {
+		// scale.min is int64 in func.yaml but the Deployment replica count is
+		// int32. ValidateScale rejects out-of-range values, but Deploy is
+		// reachable without it (library callers), so guard here too: a negative
+		// value would otherwise be silently normalized to one replica, and a
+		// value above int32 would wrap on narrowing -- e.g. int32(1<<32) == 0.
+		// Mirrors the preflight check in the keda deployer.
+		if *f.Scale.Min < 0 || *f.Scale.Min > math.MaxInt32 {
+			return nil, fmt.Errorf("function %q: scale.min %d is out of range [0, %d]", f.Name, *f.Scale.Min, math.MaxInt32)
+		}
+		if *f.Scale.Min > 0 {
+			replicas = int32(*f.Scale.Min)
+		}
 	}
 
 	deployment := &appsv1.Deployment{
@@ -785,6 +798,15 @@ func withoutWorkloadAnnotations(annotations map[string]string) map[string]string
 		delete(out, k)
 	}
 	return out
+}
+
+// preserveServiceNetworkFields carries forward the existing Service's
+// network configuration when preparing a generated Service for update.
+func preserveServiceNetworkFields(target, existing *corev1.Service) {
+	target.Spec.ClusterIP = existing.Spec.ClusterIP
+	target.Spec.ClusterIPs = existing.Spec.ClusterIPs
+	target.Spec.IPFamilies = existing.Spec.IPFamilies
+	target.Spec.IPFamilyPolicy = existing.Spec.IPFamilyPolicy
 }
 
 // CheckResourcesArePresent returns error if Secrets or ConfigMaps
